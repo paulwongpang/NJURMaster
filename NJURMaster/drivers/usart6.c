@@ -6,6 +6,7 @@ u8 Tx6Buffer[256];
 u8 Tx6Counter=0;
 u8 count6=0; 
 u8 Tx6DMABuffer[256]={0};
+u8 RX6DMABuffer[2][BSP_USART6_DMA_RX_BUF_LEN];
 /***********************************/
 
 /**
@@ -64,29 +65,54 @@ void Usart6_Init(u32 br_num)
   USART_ClockInitStruct.USART_LastBit = USART_LastBit_Disable;
   USART_ClockInit(USART6, &USART_ClockInitStruct);
 
-  //配置 DMA Stream
+  //配置 Usart6_TX的DMA2_Stream2_Ch5
   DMA_DeInit(DMA2_Stream6);  //将DMA通道6寄存器重设为缺省值
   while (DMA_GetCmdStatus(DMA1_Stream6) != DISABLE){}  //等待DMA可配置
-  DMA_InitStructure.DMA_Channel = DMA_Channel_5;       //通道选择
+  DMA_InitStructure.DMA_Channel = DMA_Channel_5;
   DMA_InitStructure.DMA_PeripheralBaseAddr = (u32)&USART6->DR;//DMA外设地址，这里为串口接收发送数据的地址
   DMA_InitStructure.DMA_Memory0BaseAddr = (u32)Tx6DMABuffer;//存放DMA传输数据的存储器地址
   DMA_InitStructure.DMA_DIR = DMA_DIR_MemoryToPeripheral;//存储器到外设模式
   DMA_InitStructure.DMA_BufferSize = 0;  //初始化数据传输量
-  DMA_InitStructure.DMA_PeripheralInc = DMA_PeripheralInc_Disable;//外设非增量模式
-  DMA_InitStructure.DMA_MemoryInc = DMA_MemoryInc_Enable;//存储器增量模式
-  DMA_InitStructure.DMA_PeripheralDataSize = DMA_PeripheralDataSize_Byte;//外设数据长度:8位
-  DMA_InitStructure.DMA_MemoryDataSize = DMA_MemoryDataSize_Byte;//存储器数据长度:8位
-  DMA_InitStructure.DMA_Mode = DMA_Mode_Normal;// 使用普通模式 
-  DMA_InitStructure.DMA_Priority = DMA_Priority_Medium;//中等优先级
-  DMA_InitStructure.DMA_FIFOMode = DMA_FIFOMode_Disable;         
+  DMA_InitStructure.DMA_PeripheralInc = DMA_PeripheralInc_Disable;
+  DMA_InitStructure.DMA_MemoryInc = DMA_MemoryInc_Enable;
+  DMA_InitStructure.DMA_PeripheralDataSize = DMA_PeripheralDataSize_Byte;
+  DMA_InitStructure.DMA_MemoryDataSize = DMA_MemoryDataSize_Byte;
+  DMA_InitStructure.DMA_Mode = DMA_Mode_Normal;
+  DMA_InitStructure.DMA_Priority = DMA_Priority_Medium;
+  DMA_InitStructure.DMA_FIFOMode = DMA_FIFOMode_Disable;
   DMA_InitStructure.DMA_FIFOThreshold = DMA_FIFOThreshold_Full;
-  DMA_InitStructure.DMA_MemoryBurst = DMA_MemoryBurst_Single;//存储器突发单次传输
-  DMA_InitStructure.DMA_PeripheralBurst = DMA_PeripheralBurst_Single;//外设突发单次传输
+  DMA_InitStructure.DMA_MemoryBurst = DMA_MemoryBurst_Single;
+  DMA_InitStructure.DMA_PeripheralBurst = DMA_PeripheralBurst_Single;
   DMA_Init(DMA2_Stream6, &DMA_InitStructure);//初始化DMA Stream
 
-  USART_ITConfig(USART6, USART_IT_RXNE, ENABLE);  //RXNE 读数据寄存器非空
+  //配置 Usart6_RX的DMA2_Stream1_Ch5
+  DMA_DeInit(DMA2_Stream1);
+  while (DMA_GetCmdStatus(DMA2_Stream1) != DISABLE){}
+  DMA_InitStructure.DMA_Channel = DMA_Channel_5;
+  DMA_InitStructure.DMA_PeripheralBaseAddr = (u32)&USART6->DR;
+  DMA_InitStructure.DMA_Memory0BaseAddr = (u32)&RX6DMABuffer[0][0];
+  DMA_InitStructure.DMA_DIR = DMA_DIR_PeripheralToMemory;//外设到储存器
+  DMA_InitStructure.DMA_BufferSize =sizeof(BSP_USART6_DMA_RX_BUF_LEN)/2;
+  DMA_InitStructure.DMA_PeripheralInc = DMA_PeripheralInc_Disable;
+  DMA_InitStructure.DMA_MemoryInc = DMA_MemoryInc_Enable;
+  DMA_InitStructure.DMA_PeripheralDataSize = DMA_PeripheralDataSize_Byte;
+  DMA_InitStructure.DMA_MemoryDataSize = DMA_MemoryDataSize_Byte;
+  DMA_InitStructure.DMA_Mode = DMA_Mode_Normal;
+  DMA_InitStructure.DMA_Priority = DMA_Priority_Medium;
+  DMA_InitStructure.DMA_FIFOMode = DMA_FIFOMode_Disable;
+  DMA_InitStructure.DMA_FIFOThreshold = DMA_FIFOThreshold_1QuarterFull;
+  DMA_InitStructure.DMA_MemoryBurst = DMA_MemoryBurst_Single;
+  DMA_InitStructure.DMA_PeripheralBurst = DMA_PeripheralBurst_Single;
+  DMA_Init(DMA2_Stream1, &DMA_InitStructure);//初始化DMA Stream
+
+  DMA_DoubleBufferModeConfig(DMA2_Stream1, (uint32_t)&RX6DMABuffer[1][0], DMA_Memory_0);   //first used memory configuration
+  DMA_DoubleBufferModeCmd(DMA2_Stream1, ENABLE);
+  DMA_Cmd(DMA2_Stream1, ENABLE);
+
+  USART_ITConfig(USART6, USART_IT_IDLE, ENABLE);  //RXNE 读数据寄存器非空
   USART_Cmd(USART6, ENABLE); 
   USART_DMACmd(USART6,USART_DMAReq_Tx,ENABLE);    //使能USART6的DMA发送
+  USART_DMACmd(USART6,USART_DMAReq_Rx,ENABLE);
 
 }
 
@@ -98,20 +124,42 @@ void Usart6_Init(u32 br_num)
   */
 void USART6_IRQHandler(void)
 {
-  u8 com_data;
-  
-  if(USART6->SR & USART_SR_ORE)
-  {
-    com_data = USART6->DR;
-  }
-  if( USART_GetITStatus(USART6,USART_IT_RXNE) )
-  {
-    USART_ClearITPendingBit(USART6,USART_IT_RXNE);
-
-    com_data = USART6->DR;
-    Usart6_DataPrepare(com_data);
+  static uint32_t this_time_rx6_len = 0;
+  if(USART_GetITStatus(USART6, USART_IT_IDLE) != RESET)
+	{
+    //clear the idle pending flag
+    //USART_ClearITPendingBit(USART6,USART_IT_IDLE);清除IDLE中断标志位不能这样完成
+	USART6->DR;
+	USART6->SR;
+  //Target is Memory0
+    if(DMA_GetCurrentMemoryTarget(DMA2_Stream1) == 0)
+    {
+      DMA_Cmd(DMA2_Stream1,DISABLE);
+      this_time_rx6_len = BSP_USART6_DMA_RX_BUF_LEN - DMA_GetCurrDataCounter(DMA2_Stream1);
+      DMA2_Stream1->NDTR = (uint16_t)BSP_USART6_DMA_RX_BUF_LEN;                             //relocate the dma memory pointer to the beginning position
+      DMA2_Stream1->CR |= (uint32_t)(DMA_SxCR_CT);                                          //we select the memory1 to receive data
+      DMA_Cmd(DMA2_Stream1,ENABLE);
+      if(this_time_rx6_len <= RS_FRAME_LENGTH)       //
+      {
+		      Usart6_DataPrepare(RX6DMABuffer[0]);
+      }
+    }
+    //Target is Memory1
+    else
+    {
+      DMA_Cmd(DMA2_Stream1,DISABLE);
+      this_time_rx6_len = BSP_USART6_DMA_RX_BUF_LEN - DMA_GetCurrDataCounter(DMA2_Stream1);  //get the length of data that DMA has transferred
+      DMA2_Stream1->NDTR = (uint16_t)BSP_USART6_DMA_RX_BUF_LEN;                             //relocate the dma memory pointer to the beginning position
+      DMA2_Stream1->CR &= ~(uint32_t)(DMA_SxCR_CT);                                         //we select the memory1 to receive data
+      DMA_Cmd(DMA2_Stream1,ENABLE);
+      if(this_time_rx6_len <= RS_FRAME_LENGTH)       //
+      {  
+		      Usart6_DataPrepare(RX6DMABuffer[1]);
+      }
+    }
   }
 }
+
 
 /**
   * @brief 串口6的DMA发送函数，发送一组数据
